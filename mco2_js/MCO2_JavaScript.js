@@ -68,7 +68,7 @@ function generateCostSavings(ApprovedBudgetForContract, ContractCost){
 
 function generateCompletionDelayDays(sDate, aDate){
   const msPerDay = 1000 * 60 * 60 * 24;
-  return  Math.round((sDate - aDate) / msPerDay);
+  return  Math.round((aDate - sDate) / msPerDay);
 }
 
 function costSavingsMedian(dataSet){
@@ -93,10 +93,18 @@ function AverageDelayDays(dataSet){
   return Average;
 }
 
-function PercentageDelay(){
+function PercentageDelay(dataSet){
+  let percentage = 0;
+  let RegionSize = dataSet.length;
+  for(let i = 0; i < RegionSize; i++){
 
-
+  }
 }
+
+function EfficiencyScore(medianCostSavings, AverageDelay){
+  return (medianCostSavings/AverageDelay) * 100;
+}
+
 function report1(){
   console.log("Outputs are saved into individual CSV Report Files.");
   console.log("\nReport 1: Regional Flood Mitigation Efficiency Summary");
@@ -124,7 +132,8 @@ function report1(){
     TotalApprovedBudget: 0,
     MedianCostSavings: 0,
     AverageCompletionDelayDays: 0,
-    PercentageDelay: 0
+    PercentageDelay: 0,
+    EfficiencyScore: 0
   }));
 
   //total approved budget for each region
@@ -162,6 +171,14 @@ function report1(){
     data.AverageCompletionDelayDays = AverageDelayDays(delayDays[data.Region]);
   });
   
+  report1.forEach(data =>{
+
+    data.PercentageDelay = PercentageDelay(delayDays[data.Region]);
+  })
+
+  report1.forEach(data =>{
+    data.EfficiencyScore = EfficiencyScore(data.MedianCostSavings, data.AverageCompletionDelayDays);
+  });
   
   
 

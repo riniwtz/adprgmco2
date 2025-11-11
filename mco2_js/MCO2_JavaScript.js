@@ -91,7 +91,19 @@ function generateCostSavings(ApprovedBudgetForContract, ContractCost){
 function generateCompletionDelayDays(sDate, aDate){
   const msPerDay = 1000 * 60 * 60 * 24;
   return  Math.round((aDate - sDate) / msPerDay);
+}
+
+
+function AverageDelayDays(dataSet){
+  let Average = 0;
+  let size = dataSet.length;
+  let sum = 0;
+  for(let i = 0; i < size; i++){
+    sum += dataSet[i];
   }
+  Average = sum/size;
+  return Average;
+}
 
 function report1(){
   console.log("Outputs are saved into individual CSV Report Files.");
@@ -177,10 +189,6 @@ function report1(){
   
   saveToCSV(report1, "report1s.csv");
 
-  
-
-  
-
   function costSavingsMedian(dataSet){
     let median = 0;
     let dataSize = dataSet.length;
@@ -192,16 +200,6 @@ function report1(){
     return median;
   }
 
-  function AverageDelayDays(dataSet){
-    let Average = 0;
-    let size = dataSet.length;
-    let sum = 0;
-    for(let i = 0; i < size; i++){
-      sum += dataSet[i];
-    }
-    Average = sum/size;
-    return Average;
-  }
 
   function PercentageDelay(dataSet){
     let percentage = 0;
@@ -225,11 +223,13 @@ function report2(){
 
   const uniqueContractors = Array.from(new Set(records.map(r => r.Contractor)));
   const report2 = uniqueContractors.map(contractor => ({
-    Contractor: contractor,
+    Contractor: contractor, 
     TotalProjects: 0,
+    ContractCost: 0,
     AverageCompletionDelayDays: 0,
     TotalCostSavings:0,
-    ReliabilityIndex:0
+    ReliabilityIndex:0,
+    Flag: ""
   }));
 
   let template2 = records.map(record => {
@@ -237,16 +237,89 @@ function report2(){
       Contractor: record.Contractor,
       apbudg: record.ApprovedBudgetForContract,
       cost: record.ContractCost,
-      sdate: record.StartDate,
-      adate: record.ActualCompletionDate,
       CostSavings: generateCostSavings(record.ApprovedBudgetForContract, record.ContractCost),
       CompletionDelayDays: generateCompletionDelayDays(record.StartDate, record.ActualCompletionDate)
     };
   });
+  //can remove soon
+  template2.sort((a, b) => {
+    const contractorCompare = a.Contractor.localeCompare(b.Contractor);
+    if (contractorCompare !== 0) return contractorCompare; // Contractor A→Z
 
+    return b.ContractCost - a.ContractCost; // CostSavings high→low
+  });
 
+  //total approved budget for each region
+  template2.forEach(data =>{
+    let contractorData = report2.find(r => r.Contractor === data.Contractor);
+    let counter = 0;
+    if(contractorData){
+      contractorData.TotalProjects +=1;
+    }
+  })
+
+  for (let i = report2.length - 1; i >= 0; i--) {
+    if (report2[i].TotalProjects <= 5) {
+      report2.splice(i, 1); // removes that row
+    }
+  }
+  template2.forEach(data =>{
+    let contractorData = report2.find(r => r.Contractor === data.Contractor);
+    if(contractorData){
+      contractorData.ContractCost += data.cost;
+    }
+  })
+
+  //group completion delay days by contractor
+  const delayDays_Contractor = {};
+  template2.forEach(data =>{
+    if(!delayDays_Contractor[data.Contractor]){
+      delayDays_Contractor[data.Contractor] = [];
+    }
+    delayDays_Contractor[data.Contractor].push(data.CompletionDelayDays);
+  });
+
+  //Generate average completion delay days for each contractor (reused function from report 1)
+  report2.forEach(data =>{
+    data.AverageCompletionDelayDays = AverageDelayDays(delayDays_Contractor[data.Contractor]);
+  });
+
+  //total cost savings for each contractor
+  template2.forEach(data =>{
+    let contractorData = report2.find(r => r.Contractor === data.Contractor);
+    if(contractorData){
+      contractorData.TotalCostSavings += data.CostSavings;
+    }
+  })
+
+  //calculate reliability index and flag for each contractor
+  report2.forEach(data =>{
+    
+    let reliabilityIndex = (1-(data.AverageCompletionDelayDays/90)) * (data.TotalCostSavings/data.ContractCost) * 100;
+    data.ReliabilityIndex = reliabilityIndex;
+    if(reliabilityIndex > 100){
+      data.ReliabilityIndex = 100;
+    }
+    if(reliabilityIndex < 50){
+      data.Flag = "High Risk";
+    }else{
+      data.Flag = "Low Risk";
+    }
+  })
+
+  report2.sort((a, b) => {
+
+    return b.ContractCost - a.ContractCost; // CostSavings high→low
+  });
+
+  for (let i = report2.length - 1; i >= 15; i--) {
+    report2.splice(i, 1); // removes that row
+  }
+
+  saveToCSV(report2, "report2s.csv");
   saveToCSV(template2, "template2.csv");
 }
+
 
 
 

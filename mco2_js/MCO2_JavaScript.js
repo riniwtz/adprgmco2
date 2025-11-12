@@ -222,7 +222,6 @@ function report1(){
   printSampleToConsole(report1);
   //save report1 to CSV
   saveToCSV(report1, "report1_regional_summary.csv");
-  saveToCSV(template,"template1.csv");
   
   //Cost Savings Median Function
   function costSavingsMedian(dataSet){

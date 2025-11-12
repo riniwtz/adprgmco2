@@ -54,7 +54,7 @@ function loadFileSync() {
     columns: true,
     skip_empty_lines: false
   });
-  
+  console.log(`Total Records Loaded: ${parsed.length}`);
   const result = [];
 
   //data cleaning and type conversion
@@ -86,6 +86,7 @@ function loadFileSync() {
     //append cleaned data to result array
     result.push(data);
   }
+  console.log(`Total Records after Cleaning: ${result.length}`);
   //return cleaned data
   return result;
 }
@@ -223,7 +224,7 @@ function report1(){
   printSampleToConsole(report1);
   //save report1 to CSV
   saveToCSV(report1, "report1_regional_summary.csv");
-
+  saveToCSV(template,"template1.csv");
   
   //Cost Savings Median Function
   function costSavingsMedian(dataSet){
@@ -366,9 +367,6 @@ function report2(){
   }
   printSampleToConsole(report2);
   saveToCSV(report2, "report2_contractor_ranking.csv");
-  
- 
-
 }
 
 function report3() {
@@ -482,15 +480,9 @@ function generateSummary(records) {
   console.log("summary.json generated!");
 }
 
-
-
-
-
-
-
 //MAIN
 while (running) {
-  console.log("Select Language Implementation:");
+  console.log("\nSelect Language Implementation:");
   console.log("[1] Load File");
   console.log("[2] Print First Record (Test)");
   console.log("[3] Exit");
@@ -514,12 +506,24 @@ while (running) {
       if (!FileLoaded || records.length === 0) {
         console.log("No file loaded yet.");
       } else {
-        report1();
-        report2();
-        report3();
-        generateSummary(records);
-
-
+        let continueWhile = true;
+        while(continueWhile){
+          report1();
+          report2();
+          report3();
+          generateSummary(records);
+          
+          let menuChoice = prompt("Back to Main Menu? (Y/N): ");
+          if (menuChoice.toUpperCase() === "Y") {
+            continueWhile = false;
+            break;
+          }else if(menuChoice.toUpperCase() === "N"){
+            
+          }else{
+            console.log("Invalid choice. Please enter Y or N.");
+          }
+        }
+        
       }
       break;
 

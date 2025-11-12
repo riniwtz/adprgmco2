@@ -34,14 +34,12 @@ const regionIslandGroup = {
   "Region VI": "Visayas",
   "Region VII": "Visayas",
   "Region VIII": "Visayas",
-
+  
   "Region IX": "Mindanao",
   "Region X": "Mindanao",
   "Region XI": "Mindanao",
   "Region XII": "Mindanao",
-  "Region XIII": "Mindanao",
-
-  "BARMM": "Mindanao"
+  "Region XIII": "Mindanao"
 };
 
 //function to load file synchronously

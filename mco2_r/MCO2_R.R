@@ -73,7 +73,7 @@ generate_reports <- function() {
       RawEfficiency = (MedianSavings / ifelse(AvgDelay == 0, 1, AvgDelay)) * 100
     )
   
-  # normalize across the *entire dataset*, not per row
+  # Changing efficency scores to accomidate across the dataset
   report1 <- report1 %>%
     mutate(
       EfficiencyScore = scales::rescale(RawEfficiency, to = c(0, 100))
@@ -82,7 +82,8 @@ generate_reports <- function() {
     select(-RawEfficiency)
   
   write_csv(report1, "report1_efficiency.csv")
-  cat("Report 1 fixed and generated: report1_efficiency.csv\n")
+  cat("Report 1: report1_efficiency.csv\n")
+  print(head(report1, 6))  
   
   # Report 2: Contractor Ranking
   report2 <- flood_clean %>%
@@ -103,6 +104,7 @@ generate_reports <- function() {
   
   write_csv(report2, "report2_contractors.csv")
   cat("Report 2: report2_contractors.csv\n")
+  print(head(report2, 6)) 
   
   # Report 3: Annual Overrun Trends
   report3_base <- flood_clean %>%
@@ -124,6 +126,7 @@ generate_reports <- function() {
   
   write_csv(report3, "report3_trends.csv")
   cat("Report 3: report3_trends.csv\n")
+  print(head(report3, 6))  
   
   # Summary JSON
   summary_stats <- list(

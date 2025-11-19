@@ -4,20 +4,21 @@ Language: Kotlin
 Paradigm(s): Imperative, Functional, Object-Oriented
  *********************/
 
-import java.time.LocalDate
-import java.io.File
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
+ import java.time.LocalDate
+ import java.io.File
+ import java.time.format.DateTimeFormatter
+ import java.time.format.DateTimeParseException
+ import java.time.temporal.ChronoUnit // for calculating day difference
+ import kotlin.math.abs // for absolute value in yoy calculation
+ import java.util.*
 
-
-
+ 
  // --- helper for safe date parsing ---
  
  // safely converts a string to a localdate, returning null if parsing fails or the string is empty
  private fun String.toDateOrNull(): LocalDate? {
      if (this.isBlank()) return null
      return try {
-         // assuming all date format is yyyy-mm-dd in the csv file (iso_local_date)
          LocalDate.parse(this, DateTimeFormatter.ISO_LOCAL_DATE)
      } catch (e: DateTimeParseException) {
          null // returns null on invalid date format
@@ -56,12 +57,12 @@ import java.time.format.DateTimeParseException
     val contractorName: String, 
     val typeOfWork: String 
 ) {
-    // derived field: cost savings = approvedbudgetforcontract - contractcost. computed once, on first access.
+    // derived field: cost savings = approvedbudgetforcontract - contractcost
     val costSavings: Double by lazy {
         approvedBudget - contractCost
     }
 
-    // derived field: completion delay days. computed once, on first access.
+    // derived field: completion delay days
     val completionDelayDays: Long? by lazy {
         if (startDate != null && completionDate != null) {
             // calculates the duration between start and completion (positive if completion > start)
@@ -118,7 +119,7 @@ import java.time.format.DateTimeParseException
      for (line in lines.drop(1)) { // skip the header line
          if (line.isBlank()) continue
          
-         // split the line and remove surrounding quotes from the fields
+         // split  line and remove surrounding quotes from the fields
          val fields = csvPattern.split(line).map { it.trim().removeSurrounding("\"") }
          
          // basic validation: check if we have enough columns
@@ -135,14 +136,14 @@ import java.time.format.DateTimeParseException
              val contractCostStr = fields[contractCostIdx].replace(",", "")
              
              // strict parsing for financial fields
-             // if they are null (invalid format/non-numeric like "clustered with..."), treat the entire row as an error and skip it
-             val approvedBudget = approvedBudgetStr.toDoubleOrNull()
-             val contractCost = contractCostStr.toDoubleOrNull()
+             // if they are null (invalid format/non-numeric like "clustered with...") it will get defaulted to 0
+             var approvedBudget = approvedBudgetStr.toDoubleOrNull()
+             var contractCost = contractCostStr.toDoubleOrNull()
              
              // basic validation: check if required financial fields are valid/present
              if (approvedBudget == null || contractCost == null) {
-                 errorRowCount++
-                 continue // skip this row
+                 approvedBudget = 0.0;
+                 contractCost = 0.0;
              }
              
              // safely parse date and year
@@ -310,7 +311,7 @@ import java.time.format.DateTimeParseException
          
      // sort descending by efficiencyscore
      val sortedData = groupedData.entries
-         .sortedByDescending { it.value["efficiencyscore"] as Double }
+         .sortedByDescending { it.value["efficiencyScore"] as Double }
  
      val header = listOf("region", "mainisland", "totalbudget", "mediansavings", "avgdelay", "highdelaypct", "efficiencyscore")
      val data = sortedData.map { (key, metrics) -> // using destructuring for clean access
@@ -334,14 +335,14 @@ import java.time.format.DateTimeParseException
      println("(Filtered: 2021-2023 Projects)")
      println("${"-".repeat(lineLength)}")
  
-     // Print Header
+     // print headders
      println(String.format(
          "%-20s | %-15s | %18s | %18s | %12s | %12s | %12s",
          "Region", "Main Island", "Total Budget", "Median Savings", "Avg Delay", "High Delay %", "Efficiency Score"
      ))
      println("${"-".repeat(lineLength)}")
  
-     // Print Data Rows (Limit to Top 15 for console display)
+     // print Data Rows 
      for (row in data.take(15)) {
          val region = row[0] as String
          val mainIsland = row[1] as String
@@ -370,7 +371,7 @@ import java.time.format.DateTimeParseException
  fun generateContractorRankingReport(projects: List<FloodProject>, topN: Int = 15, minProjects: Int = 5) {
  
      // only consider projects with completion data
-     val completedProjects = projects.filter { it.completionDelayDays != null }
+     val completedProjects = projects;
      
      val groupedData = completedProjects
          .groupBy { it.contractorName }
@@ -440,6 +441,8 @@ import java.time.format.DateTimeParseException
          "Rank", "Contractor", "Total Cost", "Projects", "Avg Delay", "Total Savings", "Reliability", "Risk Flag"
      ))
      println("${"-".repeat(lineLength)}")
+
+    
 
      // Print Data Rows
      for (row in data) {

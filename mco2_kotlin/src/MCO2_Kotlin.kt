@@ -1,7 +1,9 @@
 /*********************
-Last names: Crisologo, Cruz, Cunanan, Iwata
-Language: Kotlin
-Paradigm(s): Imperative, Functional, Object-Oriented
+last names: crisologo, cruz, cunanan, iwata
+language: kotlin
+paradigm(s): imperative, functional, object-oriented
+ 
+
  *********************/
 
  import java.time.LocalDate
@@ -10,7 +12,7 @@ Paradigm(s): Imperative, Functional, Object-Oriented
  import java.time.format.DateTimeParseException
  import java.time.temporal.ChronoUnit // for calculating day difference
  import kotlin.math.abs // for absolute value in yoy calculation
- import java.util.*
+ import java.util.* // for locale in formatting
 
  
  // --- helper for safe date parsing ---
@@ -19,6 +21,7 @@ Paradigm(s): Imperative, Functional, Object-Oriented
  private fun String.toDateOrNull(): LocalDate? {
      if (this.isBlank()) return null
      return try {
+         // assuming all date format is yyyy-mm-dd in the csv file (iso_local_date)
          LocalDate.parse(this, DateTimeFormatter.ISO_LOCAL_DATE)
      } catch (e: DateTimeParseException) {
          null // returns null on invalid date format
@@ -57,12 +60,12 @@ Paradigm(s): Imperative, Functional, Object-Oriented
     val contractorName: String, 
     val typeOfWork: String 
 ) {
-    // derived field: cost savings = approvedbudgetforcontract - contractcost
+    // derived field: cost savings = approvedbudgetforcontract - contractcost. computed once, on first access.
     val costSavings: Double by lazy {
         approvedBudget - contractCost
     }
 
-    // derived field: completion delay days
+    // derived field: completion delay days. computed once, on first access.
     val completionDelayDays: Long? by lazy {
         if (startDate != null && completionDate != null) {
             // calculates the duration between start and completion (positive if completion > start)
@@ -119,7 +122,7 @@ Paradigm(s): Imperative, Functional, Object-Oriented
      for (line in lines.drop(1)) { // skip the header line
          if (line.isBlank()) continue
          
-         // split  line and remove surrounding quotes from the fields
+         // split the line and remove surrounding quotes from the fields
          val fields = csvPattern.split(line).map { it.trim().removeSurrounding("\"") }
          
          // basic validation: check if we have enough columns
@@ -408,7 +411,7 @@ Paradigm(s): Imperative, Functional, Object-Oriented
          
      // rank top n by totalcost (descending)
      val topContractors = groupedData.entries
-         .sortedByDescending { it.value!!["totalcost"] as Double }
+         .sortedByDescending { it.value!!["avgdelay"] as Double }
          .take(topN)
  
      val header = listOf("rank", "contractor", "totalcost", "numprojects", "avgdelay", "totalsavings", "reliabilityindex", "riskflag")

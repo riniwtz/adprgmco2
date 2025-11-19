@@ -34,17 +34,18 @@ const regionIslandGroup = {
   "Region VI": "Visayas",
   "Region VII": "Visayas",
   "Region VIII": "Visayas",
-  
+
   "Region IX": "Mindanao",
   "Region X": "Mindanao",
   "Region XI": "Mindanao",
   "Region XII": "Mindanao",
-  "Region XIII": "Mindanao"
+  "Region XIII": "Mindanao",
+
+  "BARMM": "Mindanao"
 };
 
 //function to load file synchronously
 function loadFileSync() {
-
   //read file content
   const fileContent = fs.readFileSync(filePath, 'utf8');
   //parse CSV content
@@ -54,14 +55,16 @@ function loadFileSync() {
   });
   console.log(`Total Records Loaded: ${parsed.length}`);
   const result = [];
-
   //data cleaning and type conversion
   for (let data of parsed) {
     //filter funding year between 2021 and 2023
-    if (Number(data.FundingYear) < 2021 || Number(data.FundingYear) > 2023) continue;
-    //filter missing values
-    if(isNaN(Number(data.ApprovedBudgetForContract)) || 
-       isNaN(Number(data.ContractCost)) ||
+    if(Number(data.FundingYear) < 2021 || Number(data.FundingYear) > 2023){
+        continue; 
+      }
+    if(isNaN(Number(data.ApprovedBudgetForContract))){
+      data.ApprovedBudgetForContract = 0.0;
+    }
+    if(isNaN(Number(data.ContractCost)) ||
        isNaN(Number(data.ProjectLatitude)) ||
        isNaN(Number(data.ProjectLongitude)) ||
        isNaN(Number(data.ProvincialCapitalLatitude)) ||
@@ -222,6 +225,7 @@ function report1(){
   printSampleToConsole(report1);
   //save report1 to CSV
   saveToCSV(report1, "report1_regional_summary.csv");
+  saveToCSV(template,"template1.csv");
   
   //Cost Savings Median Function
   function costSavingsMedian(dataSet){
@@ -509,7 +513,7 @@ while (running) {
           report2();
           report3();
           generateSummary(records);
-          
+          saveToCSV(records, "full_table_export.csv");
           let menuChoice = prompt("Back to Main Menu? (Y/N): ");
           if (menuChoice.toUpperCase() === "Y") {
             continueWhile = false;

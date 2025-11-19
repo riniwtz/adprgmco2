@@ -61,10 +61,9 @@ function loadFileSync() {
     if(Number(data.FundingYear) < 2021 || Number(data.FundingYear) > 2023){
         continue; 
       }
-    if(isNaN(Number(data.ApprovedBudgetForContract))){
-      data.ApprovedBudgetForContract = 0.0;
-    }
-    if(isNaN(Number(data.ContractCost)) ||
+    
+    if(isNaN(Number(data.ApprovedBudgetForContract)) ||
+       isNaN(Number(data.ContractCost)) ||
        isNaN(Number(data.ProjectLatitude)) ||
        isNaN(Number(data.ProjectLongitude)) ||
        isNaN(Number(data.ProvincialCapitalLatitude)) ||
@@ -74,6 +73,7 @@ function loadFileSync() {
       }else{
         //convert string to number
         data.FundingYear = Number(data.FundingYear);
+      
         data.ApprovedBudgetForContract = Number(data.ApprovedBudgetForContract);
         data.ContractCost = Number(data.ContractCost);
         data.ProjectLatitude = Number(data.ProjectLatitude);

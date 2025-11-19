@@ -14,10 +14,37 @@ use serde::Serialize;
 use serde_json;
 use std::cmp::Ordering;
 
+/*
+dwph_flood_control_projects.csv columns
+    0 - MainIsland: String
+    1 - Region: String
+    2 - Province: String
+    3 - LegislativeDistrict: String
+    4 - Municipality: String
+    5 - DistrictEngineeringOffice: String
+    6 - ProjectId: String
+    7 - ProjectName: String
+    8 - TypeOfWork: String
+    9 - FundingYear: int
+    10 - ContractId: String
+    11 - ApprovedBudgetForContract: double (contains string)
+    12 - ContractCost: double
+    13 - ActualCompletionDate: Date (YYYY-mm-dd)
+    14 - Contractor: String
+    15 - ContractorCount: int
+    16 - StartDate: Date (YYYY-mm-dd)
+    17 - ProjectLatitude: double
+    18 - ProjectLongitude: double
+    19 - ProvincialCapital: String
+    20 - ProvincialCapitalLatitude: double
+    21 - ProvincialCapitalLongitude: double
+*/
+
 #[derive(Debug, Clone, Serialize)]
 struct Project {
     region: String,
     main_island: String,
+    province: String,
     contractor: String,
     funding_year: i32,
     type_of_work: String,
@@ -27,6 +54,7 @@ struct Project {
     completion_delay_days: Option<i64>,
 }
 
+/// Regional Efficiency Report (Report 1)
 #[derive(Debug, Serialize)]
 struct InfrastructureTrends {
     region: String,
@@ -38,6 +66,7 @@ struct InfrastructureTrends {
     efficiency_score: f64,
 }
 
+/// Contractor Efficiency Report (Report 2)
 #[derive(Debug, Serialize)]
 struct FinancialEfficiencies {
     rank: i32,
@@ -50,6 +79,7 @@ struct FinancialEfficiencies {
     risk_flag: String,
 }
 
+/// Annual/Type Performance Report (Report 3)
 #[derive(Debug, Serialize)]
 struct PerformanceMetrics {
     funding_year: i32,
@@ -60,6 +90,7 @@ struct PerformanceMetrics {
     yoy_change: f64,
 }
 
+/// Summary JSON output
 #[derive(Debug, Serialize)]
 struct SummaryJson {
     total_projects_analyzed: usize,
@@ -69,31 +100,9 @@ struct SummaryJson {
     total_provinces: usize,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut projects: Vec<Project> = Vec::new();
-    let mut data_loaded = false;
-
-    loop {
-        print_menu();
-        let choice = get_menu_choice()?;
-
-        let keep_running = match choice {
-            1 => handle_load_data(&mut projects, &mut data_loaded),
-            2 => handle_generate_reports(&projects, data_loaded),
-            3 => handle_exit(),
-            _ => handle_invalid_choice(),
-        };
-
-        if !keep_running {
-            break;
-        }
-    }
-    Ok(())
-}
-
 fn print_menu() {
     println!("\n=== DPWH Flood Control Data Analysis Pipeline ===");
-    println!("===               By Rintaro Iwata            ===\n");
+    println!("===               By Group Name               ===\n");
     println!("[1] Load Dataset (Filter 2021-2023)");
     println!("[2] Generate Reports");
     println!("[3] Exit");
@@ -111,531 +120,423 @@ fn get_menu_choice() -> Result<i32, Box<dyn Error>> {
     Ok(choice)
 }
 
+/// Main
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut projects: Vec<Project> = Vec::new();
+    let mut data_loaded = false;
+
+    loop {
+        print_menu();
+        let choice = get_menu_choice()?;
+
+        let keep_running = match choice {
+            1 => handle_load_data(&mut projects, &mut data_loaded),
+            2 => handle_generate_reports(&projects, data_loaded),
+            3 => {
+                println!("Exiting application. Goodbye!");
+                false
+            },
+            _ => {
+                println!("Invalid choice. Please try again.");
+                true
+            },
+        };
+
+        if !keep_running {
+            break;
+        }
+    }
+    Ok(())
+}
+
 fn handle_load_data(projects: &mut Vec<Project>, data_loaded: &mut bool) -> bool {
-    println!("Processing dataset...");
-    let file_path = "../dpwh_flood_control_projects.csv";
+    let file_path = "../dpwh_flood_control_projects.csv"; 
     match load_data(file_path) {
-        Ok((record_count, loaded_projects)) => {
-            *projects = loaded_projects;
+        Ok((record_capacity_count, data)) => {
+            *projects = data;
             *data_loaded = true;
             println!(
                 "SUCCESS: {} rows loaded, {} rows filtered for 2021-2023",
-                record_count,
+                record_capacity_count,
                 projects.len()
             );
         }
-        Err(e) => println!("ERROR: Failed to load data: {}", e),
+        Err(e) => println!("Error loading data: {}", e),
     }
     true
+}
+
+fn load_data(file_path: &str) -> Result<(i32, Vec<Project>), Box<dyn Error>> {
+    let file = File::open(file_path)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(file);
+
+    let mut projects = Vec::new();
+    let mut record_capacity_count = 0;
+    let mut error_count = 0;
+
+    for result in rdr.records() {
+        let record = result?;
+        record_capacity_count += 1;
+
+        match parse_data(&record) {
+            Ok(Some(project)) => projects.push(project),
+            Ok(None) => {
+                error_count += 1;
+            }
+            Err(_) => error_count += 1,
+        }
+    }
+
+    println!("Skipped/Filtered {} rows.", error_count);
+    Ok((record_capacity_count, projects))
+}
+
+fn parse_data(record: &StringRecord) -> Result<Option<Project>, Box<dyn Error>> {
+    // Column Mapping:
+    // 0: MainIsland, 1: Region, 2: Province, 8: TypeOfWork, 9: FundingYear
+    // 11: ApprovedBudget, 12: ContractCost, 13: ActualCompletionDate, 14: Contractor, 16: StartDate
+
+    // GLOBAL FILTER (REQ-0003)
+    let funding_year_str = record.get(9).unwrap_or("").trim();
+    if funding_year_str.is_empty() { return Ok(None); }
+    
+    let funding_year: i32 = match funding_year_str.parse() {
+        Ok(y) => y,
+        Err(_) => return Ok(None),
+    };
+
+    if !(2021..=2023).contains(&funding_year) {
+        return Ok(None);
+    }
+
+    // REPORT 1 Metrics
+    let region = record.get(1).unwrap_or("").trim().to_string();
+    let main_island = record.get(0).unwrap_or("").trim().to_string();
+    let province = record.get(2).unwrap_or("").trim().to_string();
+
+    // Financials
+    let budget_str = record.get(11).unwrap_or("0").replace(",", "");
+    let approved_budget: f64 = budget_str.parse().unwrap_or(0.0);
+    let cost_str = record.get(12).unwrap_or("0").replace(",", "");
+    let contract_cost: f64 = cost_str.parse().unwrap_or(0.0);
+    let cost_savings = approved_budget - contract_cost;
+
+    // REPORT 2 Metrics
+    let contractor = record.get(14).unwrap_or("").trim().to_string();
+
+    // REPORT 3 Metrics
+    let type_of_work = record.get(8).unwrap_or("").trim().to_string();
+
+    // Critical Validations
+    if region.is_empty() || main_island.is_empty() || contractor.is_empty() {
+        return Ok(None); 
+    }
+
+    // Dates & Delay
+    // Formula: Delay = Actual Completion - Start Date
+    let date_format = "%Y-%m-%d"; 
+    let start_date_str = record.get(16).unwrap_or("").trim();
+    let actual_date_str = record.get(13).unwrap_or("").trim();
+
+    let completion_delay_days = if let (Ok(start), Ok(actual)) = (
+        NaiveDate::parse_from_str(start_date_str, date_format),
+        NaiveDate::parse_from_str(actual_date_str, date_format),
+    ) {
+        let duration = actual.signed_duration_since(start).num_days();
+        Some(duration)
+    } else {
+        None 
+    };
+
+    Ok(Some(Project {
+        region,
+        main_island,
+        province,
+        contractor,
+        funding_year,
+        type_of_work,
+        approved_budget,
+        contract_cost,
+        cost_savings,
+        completion_delay_days,
+    }))
 }
 
 fn handle_generate_reports(projects: &[Project], data_loaded: bool) -> bool {
     if !data_loaded {
-        println!("WARNING: Please load the dataset first [Option 1].");
+        println!("No data loaded. Please load dataset first.");
         return true;
     }
+
     println!("Generating reports...");
 
-    match generate_reports(projects) {
-        Ok((report1, report2, report3)) => {
-            display_report_1(&report1);
-            display_report_2(&report2);
-            display_report_3(&report3);
-
-            println!("\nSUCCESS: Reports saved to CSV files and summary.json created.");
-        }
-        Err(e) => {
-            println!("ERROR: Failed to generate reports: {}", e);
-        }
+    // Report 1: Infrastructure Trends (Group by Region)
+    let report1 = generate_infrastructure_trends(projects);
+    if let Err(e) = write_csv("report1_regional_summary.csv", &report1) {
+        println!("Error writing Report 1: {}", e);
     }
+    display_report_1(&report1);
+
+    // Report 2: Financial Efficiencies (Group by Contractor)
+    let report2 = generate_financial_efficiencies(projects);
+    if let Err(e) = write_csv("report2_contractor_ranking.csv", &report2) {
+        println!("Error writing Report 2: {}", e);
+    }
+    display_report_2(&report2);
+
+    // Report 3: Performance Metrics (Group by Year and Type)
+    let report3 = generate_performance_metrics(projects);
+    if let Err(e) = write_csv("report3_annual_trends.csv", &report3) {
+        println!("Error writing Report 3: {}", e);
+    }
+    display_report_3(&report3);
+
+    // Summary JSON
+    if let Err(e) = generate_summary_json(projects, &report2) {
+        println!("Error writing summary JSON: {}", e);
+    }
+
+    println!("Reports generated successfully.");
     true
 }
 
-fn handle_exit() -> bool {
-    println!("Exiting application.");
-    false
+/// Generates Report 1
+fn generate_infrastructure_trends(projects: &[Project]) -> Vec<InfrastructureTrends> {
+    let mut map: HashMap<(String, String), Vec<&Project>> = HashMap::new();
+    for p in projects {
+        map.entry((p.region.clone(), p.main_island.clone())).or_default().push(p);
+    }
+
+    let mut report = Vec::new();
+
+    for ((region, main_island), group) in map {
+        let total_budget: f64 = group.iter().map(|p| p.approved_budget).sum();
+        let median_savings = calculate_median_savings(&group);
+        
+        let delays: Vec<i64> = group.iter().filter_map(|p| p.completion_delay_days).collect();
+        let avg_delay = if !delays.is_empty() {
+            delays.iter().sum::<i64>() as f64 / delays.len() as f64
+        } else { 0.0 };
+
+        let delayed_count = delays.iter().filter(|&&d| d > 7).count();
+        let high_delay_pct = if !delays.is_empty() {
+            (delayed_count as f64 / delays.len() as f64) * 100.0
+        } else { 0.0 };
+
+        let savings_ratio = if total_budget > 0.0 {
+             group.iter().map(|p| p.cost_savings).sum::<f64>() / total_budget
+        } else { 0.0 };
+        let efficiency_score = (savings_ratio * 100.0) - (avg_delay * 0.1);
+
+        report.push(InfrastructureTrends {
+            region, main_island, total_budget, median_savings, avg_delay, high_delay_pct, efficiency_score,
+        });
+    }
+    report.sort_by(|a, b| b.efficiency_score.partial_cmp(&a.efficiency_score).unwrap_or(Ordering::Equal));
+    report
 }
 
-fn handle_invalid_choice() -> bool {
-    println!("Invalid choice, please try again.");
-    true
+/// Generates Report 2
+fn generate_financial_efficiencies(projects: &[Project]) -> Vec<FinancialEfficiencies> {
+    let mut map: HashMap<String, Vec<&Project>> = HashMap::new();
+    for p in projects {
+        map.entry(p.contractor.clone()).or_default().push(p);
+    }
+
+    let mut report = Vec::new();
+
+    for (contractor, group) in map {
+        let total_cost: f64 = group.iter().map(|p| p.contract_cost).sum();
+        let num_projects = group.len() as i32;
+        let total_savings: f64 = group.iter().map(|p| p.cost_savings).sum();
+
+        let delays: Vec<i64> = group.iter().filter_map(|p| p.completion_delay_days).collect();
+        let avg_delay = if !delays.is_empty() {
+            delays.iter().sum::<i64>() as f64 / delays.len() as f64
+        } else { 0.0 };
+
+        let overrun_count = group.iter().filter(|p| p.cost_savings < 0.0).count();
+        let overrun_rate = (overrun_count as f64 / num_projects as f64) * 100.0;
+        
+        let reliability_index = 100.0 - (overrun_rate + (avg_delay / 365.0 * 100.0));
+        let risk_flag = if reliability_index < 85.0 { "Critical".to_string() } else { "Stable".to_string() };
+
+        report.push(FinancialEfficiencies {
+            rank: 0, contractor, total_cost, num_projects, avg_delay, total_savings, reliability_index, risk_flag,
+        });
+    }
+
+    report.sort_by(|a, b| b.reliability_index.partial_cmp(&a.reliability_index).unwrap_or(Ordering::Equal));
+    for (i, item) in report.iter_mut().enumerate() { item.rank = (i + 1) as i32; }
+
+    report
 }
 
+/// Generates Report 3
+fn generate_performance_metrics(projects: &[Project]) -> Vec<PerformanceMetrics> {
+    let mut map: HashMap<(i32, String), Vec<&Project>> = HashMap::new();
+    for p in projects {
+        map.entry((p.funding_year, p.type_of_work.clone())).or_default().push(p);
+    }
+
+    let mut count_lookup: HashMap<(i32, String), i32> = HashMap::new();
+    for ((year, work_type), group) in &map {
+        count_lookup.insert((*year, work_type.clone()), group.len() as i32);
+    }
+
+    let mut report = Vec::new();
+
+    for ((year, work_type), group) in &map {
+        let total_projects = group.len() as i32;
+        let total_savings: f64 = group.iter().map(|p| p.cost_savings).sum();
+        let avg_savings = total_savings / total_projects as f64;
+        let overrun_count = group.iter().filter(|p| p.cost_savings < 0.0).count();
+        let overrun_rate = (overrun_count as f64 / total_projects as f64) * 100.0;
+
+        let prev_year = year - 1;
+        let yoy_change = if let Some(&prev_count) = count_lookup.get(&(prev_year, work_type.clone())) {
+            if prev_count > 0 {
+                ((total_projects as f64 - prev_count as f64) / prev_count as f64) * 100.0
+            } else { 0.0 }
+        } else { 0.0 };
+
+        report.push(PerformanceMetrics {
+            funding_year: *year, type_of_work: work_type.clone(), total_projects, avg_savings, overrun_rate, yoy_change,
+        });
+    }
+    
+    report.sort_by(|a, b| {
+        a.funding_year.cmp(&b.funding_year).then(a.type_of_work.cmp(&b.type_of_work))
+    });
+    report
+}
+
+/// Summary JSON
+fn generate_summary_json(projects: &[Project], contractors_report: &[FinancialEfficiencies]) -> Result<(), Box<dyn Error>> {
+    let total_projects_analyzed = projects.len();
+    let total_budget_analyzed: f64 = projects.iter().map(|p| p.approved_budget).sum();
+    
+    let delays: Vec<i64> = projects.iter().filter_map(|p| p.completion_delay_days).collect();
+    let global_avg_delay = if !delays.is_empty() {
+        delays.iter().sum::<i64>() as f64 / delays.len() as f64
+    } else { 0.0 };
+
+    let total_contractors = contractors_report.len();
+    let total_provinces = projects.iter().map(|p| &p.province).collect::<HashSet<_>>().len();
+
+    let summary = SummaryJson {
+        total_projects_analyzed, total_budget_analyzed, global_avg_delay, total_contractors, total_provinces,
+    };
+
+    let file = File::create("summary.json")?;
+    serde_json::to_writer_pretty(file, &summary)?;
+    Ok(())
+}
+
+/// Utility Functions
+fn calculate_median_savings(group: &[&Project]) -> f64 {
+    let mut savings: Vec<f64> = group.iter().map(|p| p.cost_savings).collect();
+    if savings.is_empty() { return 0.0; }
+    savings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let mid = savings.len() / 2;
+    if savings.len() % 2 == 0 { (savings[mid - 1] + savings[mid]) / 2.0 } else { savings[mid] }
+}
+
+fn write_csv<T: Serialize>(filename: &str, data: &[T]) -> Result<(), Box<dyn Error>> {
+    let mut wtr = WriterBuilder::new().has_headers(true).from_path(filename)?;
+    for item in data { wtr.serialize(item)?; }
+    wtr.flush()?;
+    println!("Exported: {}", filename);
+    Ok(())
+}
+
+/// Displays
 fn display_report_1(report: &[InfrastructureTrends]) {
     println!("\n{:-<130}", "");
     println!("Report 1: Regional Flood Mitigation Efficiency Summary");
     println!("(Filtered: 2021-2023 Projects)");
     println!("{:-<130}", "");
     println!(
-        "{:<20} | {:<15} | {:>18} | {:>18} | {:>12} | {:>12} | {:>12}",
-        "Region",
-        "Main Island",
-        "Total Budget",
-        "Median Savings",
-        "Avg Delay",
-        "High Delay %",
-        "Efficiency"
+        "{:<25} | {:<15} | {:>18} | {:>18} | {:>12} | {:>12} | {:>12}",
+        "Region", "Main Island", "Total Budget", "Median Savings", "Avg Delay", "High Delay %", "Eff. Score"
     );
     println!("{:-<130}", "");
 
-    for r in report {
-        let region = if r.region.len() > 18 {
-            format!("{}..", &r.region[..18])
-        } else {
-            r.region.clone()
-        };
-        let island = if r.main_island.len() > 13 {
-            format!("{}..", &r.main_island[..13])
-        } else {
-            r.main_island.clone()
-        };
-
+    for row in report {
         println!(
-            "{:<20} | {:<15} | {:>18.2} | {:>18.2} | {:>12.1} | {:>12.2}% | {:>12.2}",
-            region,
-            island,
-            r.total_budget,
-            r.median_savings,
-            r.avg_delay,
-            r.high_delay_pct,
-            r.efficiency_score
+            "{:<25} | {:<15} | {:>18.2} | {:>18.2} | {:>12.2} | {:>12.2}% | {:>12.2}",
+            row.region,
+            row.main_island,
+            row.total_budget,
+            row.median_savings,
+            row.avg_delay,
+            row.high_delay_pct,
+            row.efficiency_score
         );
     }
-    println!("{:-<130}", "");
-    println!("Table exported to report1_regional_summary.csv");
+    println!("{:-<130}\n", "");
 }
 
 fn display_report_2(report: &[FinancialEfficiencies]) {
-    println!("\n{:-<140}", "");
-    println!("Report 2: Top Contractors Performance Ranking");
-    println!("(Top 15 by Total Contract Cost, >=5 Projects)");
-    println!("{:-<140}", "");
+    println!("\n{:-<150}", "");
+    println!("Report 2: Contractor Efficiency Ranking");
+    println!("{:-<150}", "");
     println!(
-        "{:<5} | {:<40} | {:>18} | {:>10} | {:>12} | {:>18} | {:>12} | {:<10}",
-        "Rank",
-        "Contractor",
-        "Total Cost",
-        "Projects",
-        "Avg Delay",
-        "Total Savings",
-        "Reliability",
-        "Risk Flag"
+        "{:<5} | {:<40} | {:>18} | {:>12} | {:>12} | {:>18} | {:>12} | {:<10}",
+        "Rank", "Contractor", "Total Cost", "Projects", "Avg Delay", "Total Savings", "Rel. Index", "Risk"
     );
-    println!("{:-<140}", "");
-    
-    // Only print the top 15, matching the CSV output
-    for r in report.iter().take(15) {
-        let contractor_name = if r.contractor.len() > 38 {
-            format!("{}..", &r.contractor[..38])
+    println!("{:-<150}", "");
+
+    for row in report.iter().take(20) {
+        let contractor_display = if row.contractor.len() > 37 {
+            format!("{}...", &row.contractor[..37])
         } else {
-            r.contractor.clone()
+            row.contractor.clone()
         };
 
         println!(
-            "{:<5} | {:<40} | {:>18.2} | {:>10} | {:>12.1} | {:>18.2} | {:>12.2} | {:<10}",
-            r.rank,
-            contractor_name,
-            r.total_cost,
-            r.num_projects,
-            r.avg_delay,
-            r.total_savings,
-            r.reliability_index,
-            r.risk_flag
+            "{:<5} | {:<40} | {:>18.2} | {:>12} | {:>12.2} | {:>18.2} | {:>12.2} | {:<10}",
+            row.rank,
+            contractor_display,
+            row.total_cost,
+            row.num_projects,
+            row.avg_delay,
+            row.total_savings,
+            row.reliability_index,
+            row.risk_flag
         );
     }
-    println!("{:-<140}", "");
-    println!("Table exported to report2_contractor_ranking.csv");
+    println!("{:-<150}\n", "");
 }
 
 fn display_report_3(report: &[PerformanceMetrics]) {
-    println!("\n{:-<120}", "");
-    println!("Report 3: Annual Project Type Cost Overrun Trends");
-    println!("(Grouped by FundingYear and TypeOfWork)");
-    println!("{:-<120}", "");
+    println!("\n{:-<130}", "");
+    println!("Report 3: Annual Performance Metrics");
+    println!("{:-<130}", "");
     println!(
-        "{:<6} | {:<45} | {:>10} | {:>18} | {:>12} | {:>12}",
-        "Year",
-        "Type of Work",
-        "Projects",
-        "Avg Savings",
-        "Overrun %",
-        "YoY Change %"
+        "{:<6} | {:<50} | {:>10} | {:>18} | {:>12} | {:>12}",
+        "Year", "Type of Work", "Projects", "Avg Savings", "Overrun %", "YoY Change"
     );
-    println!("{:-<120}", "");
-    
-    for r in report {
-        let type_of_work = if r.type_of_work.len() > 43 {
-            format!("{}..", &r.type_of_work[..43])
+    println!("{:-<130}", "");
+
+    for row in report {
+        let type_display = if row.type_of_work.len() > 47 {
+            format!("{}...", &row.type_of_work[..47])
         } else {
-            r.type_of_work.clone()
+            row.type_of_work.clone()
         };
 
         println!(
-            "{:<6} | {:<45} | {:>10} | {:>18.2} | {:>12.2}% | {:>12.2}%",
-            r.funding_year,
-            type_of_work,
-            r.total_projects,
-            r.avg_savings,
-            r.overrun_rate,
-            r.yoy_change
+            "{:<6} | {:<50} | {:>10} | {:>18.2} | {:>11.2}% | {:>11.2}%",
+            row.funding_year,
+            type_display,
+            row.total_projects,
+            row.avg_savings,
+            row.overrun_rate,
+            row.yoy_change
         );
     }
-    println!("{:-<120}", "");
-    println!("Table exported to report3_annual_trends.csv");
-}
-
-fn parse_data(record: &StringRecord) -> Result<Option<Project>, Box<dyn Error>> {
-    let date_format = "%Y-%m-%d";
-
-    // REQ-0003: Filter for "Blank Values"
-    if record.iter().any(|f| f.trim().is_empty()) {
-        return Ok(None); // Skip row if any field is blank
-    }
-
-    // Parse funding_year (col 9)
-    let funding_year: i32 = record
-        .get(9)
-        .ok_or("Missing funding_year at col 9")?
-        .trim()
-        .parse()?;
-
-    // REQ-0003: Filter for 2021-2023
-    if !(2021..=2023).contains(&funding_year) {
-        return Ok(None); // Skip row if not in year range
-    }
-
-    // Parse Financials (removing commas)
-    let approved_budget: f64 = record
-        .get(11)
-        .ok_or("Missing approved_budget at col 11")?
-        .trim()
-        .replace(',', "")
-        .parse()?;
-
-    let contract_cost: f64 = record
-        .get(12)
-        .ok_or("Missing contract_cost at col 12")?
-        .trim()
-        .replace(',', "")
-        .parse()?;
-
-    // REQ-0004: Compute Derived Fields
-    let cost_savings = approved_budget - contract_cost;
-
-    // Dates
-    let start_str = record.get(16).unwrap_or("").trim();
-    let end_str = record.get(13).unwrap_or("").trim();
-    let start_date = NaiveDate::parse_from_str(start_str, date_format).ok();
-    let end_date = NaiveDate::parse_from_str(end_str, date_format).ok();
-    let completion_delay_days = match (start_date, end_date) {
-        (Some(s), Some(e)) => Some((e - s).num_days()),
-        _ => None,
-    };
-
-    let project = Project {
-        main_island: record.get(0).unwrap_or("").trim().to_string(),
-        region: record.get(1).unwrap_or("").trim().to_string(),
-        type_of_work: record.get(8).unwrap_or("").trim().to_string(),
-        contractor: record.get(14).unwrap_or("").trim().to_string(),
-        funding_year,
-        approved_budget,
-        contract_cost,
-        cost_savings,
-        completion_delay_days,
-    };
-
-    Ok(Some(project))
-}
-
-fn load_data(file_path: &str) -> Result<(i32, Vec<Project>), Box<dyn Error>> {
-    let file = File::open(file_path)?;
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(true)
-        .from_reader(file);
-    let mut projects: Vec<Project> = Vec::new();
-    let mut record_count = 0;
-    let mut skipped_count = 0;
-
-    for result in reader.records() {
-        let record = result?;
-        record_count += 1;
-
-        match parse_data(&record) {
-            Ok(Some(project)) => {
-                projects.push(project);
-            }
-            Ok(None) => {
-                skipped_count += 1;
-                println!("Skipping row #{} due to filtering...", record_count);
-            }
-            Err(e) => {
-                println!(
-                    "Skipping row #{} due to parsing error: {}",
-                    record_count, e
-                );
-                skipped_count += 1;
-            }
-        }
-    }
-    println!("Skipped {} rows due to filtering or parsing errors...", skipped_count);
-
-    Ok((record_count, projects))
-}
-
-/// Orchestrates the calculation of all reports, writes them to files, and returns the data.
-fn generate_reports(projects: &[Project]) -> Result<(Vec<InfrastructureTrends>, Vec<FinancialEfficiencies>, Vec<PerformanceMetrics>), Box<dyn Error>> {
-    let report1 = calculate_infrastructure_trends(projects);
-    let report2 = calculate_financial_efficiencies(projects);
-    let report3 = calculate_performance_metrics(projects);
-    let summary = calculate_summary_json(projects, &report2);
-
-    write_csv(&report1, "report1_regional_summary.csv")?;
-    
-    // Write only the Top 15 for report 2
-    let report2_top15: Vec<_> = report2.iter().take(15).collect();
-    write_csv(&report2_top15, "report2_contractor_ranking.csv")?;
-    
-    write_csv(&report3, "report3_annual_trends.csv")?;
-    write_json(&summary, "summary.json")?;
-
-    Ok((report1, report2, report3))
-}
-
-/// Report 1: Calculates Infrastructure Trends
-fn calculate_infrastructure_trends(projects: &[Project]) -> Vec<InfrastructureTrends> {
-    let mut region_map: HashMap<(String, String), Vec<&Project>> = HashMap::new();
-    for p in projects {
-        region_map
-            .entry((p.region.clone(), p.main_island.clone()))
-            .or_default()
-            .push(p);
-    }
-
-    let mut report1 = Vec::new();
-    for ((region, main_island), group) in region_map {
-        let total_budget: f64 = group.iter().map(|p| p.approved_budget).sum();
-        let median_savings = calculate_median_savings(&group);
-
-        let delays: Vec<i64> = group.iter().filter_map(|p| p.completion_delay_days).collect();
-        let (avg_delay, high_delay_pct) = if !delays.is_empty() {
-            let avg = delays.iter().sum::<i64>() as f64 / delays.len() as f64;
-            let high_count = delays.iter().filter(|&&d| d > 30).count();
-            let pct = (high_count as f64 / delays.len() as f64) * 100.0;
-            (avg, pct)
-        } else {
-            (0.0, 0.0)
-        };
-        
-        let raw_score = if avg_delay.abs() > 0.001 {
-            (median_savings / avg_delay) * 100.0
-        } else {
-            0.0
-        };
-        let efficiency_score = raw_score.max(0.0).min(100.0); // per REQ-0006
-
-        report1.push(InfrastructureTrends {
-            region,
-            main_island,
-            total_budget,
-            median_savings,
-            avg_delay,
-            high_delay_pct,
-            efficiency_score,
-        });
-    }
-
-    report1.sort_by(|a, b| {
-        b.efficiency_score
-            .partial_cmp(&a.efficiency_score)
-            .unwrap_or(Ordering::Equal)
-    });
-
-    report1
-}
-
-fn calculate_financial_efficiencies(projects: &[Project]) -> Vec<FinancialEfficiencies> {
-    let mut contractor_map: HashMap<String, Vec<&Project>> = HashMap::new();
-    for p in projects {
-        contractor_map
-            .entry(p.contractor.clone())
-            .or_default()
-            .push(p);
-    }
-
-    let mut report2 = Vec::new();
-    for (contractor, group) in contractor_map {
-        let num_projects = group.len() as i32;
-
-        if num_projects < 5 { // per REQ-0007
-            continue;
-        }
-
-        let total_cost: f64 = group.iter().map(|p| p.contract_cost).sum();
-        let total_savings: f64 = group.iter().map(|p| p.cost_savings).sum();
-        let avg_delay = calculate_avg_delay(&group);
-
-        let total_cost_safe = if total_cost == 0.0 { 1.0 } else { total_cost };
-        let delay_factor = 1.0 - (avg_delay / 90.0);
-        let savings_factor = total_savings / total_cost_safe;
-        let raw_index = delay_factor * savings_factor * 100.0;
-        let reliability_index = raw_index.min(100.0); // per REQ-0007
-
-        let risk_flag = if reliability_index < 50.0 {
-            "High Risk".to_string()
-        } else {
-            "Low Risk".to_string()
-        }; // per REQ-0007
-
-        report2.push(FinancialEfficiencies {
-            rank: 0,
-            contractor,
-            total_cost,
-            num_projects,
-            avg_delay,
-            total_savings,
-            reliability_index,
-            risk_flag,
-        });
-    }
-
-    // Rank by total ContractCost (descending) per REQ-0007
-    report2.sort_by(|a, b| b.total_cost.partial_cmp(&a.total_cost).unwrap_or(Ordering::Equal));
-    
-    for (i, row) in report2.iter_mut().enumerate() {
-        row.rank = (i + 1) as i32;
-    }
-
-    report2
-}
-
-fn calculate_performance_metrics(projects: &[Project]) -> Vec<PerformanceMetrics> {
-    let mut year_type_map: HashMap<(i32, String), Vec<&Project>> = HashMap::new();
-    for p in projects {
-        year_type_map
-            .entry((p.funding_year, p.type_of_work.clone()))
-            .or_default()
-            .push(p);
-    }
-
-    let mut savings_map: HashMap<(i32, String), f64> = HashMap::new();
-    let mut report3 = Vec::new();
-
-    for ((year, work_type), group) in &year_type_map {
-        let total_projects = group.len() as i32;
-        let avg_savings =
-            group.iter().map(|p| p.cost_savings).sum::<f64>() / total_projects as f64;
-        let overrun_count = group
-            .iter()
-            .filter(|p| p.contract_cost > p.approved_budget)
-            .count();
-        let overrun_rate = (overrun_count as f64 / total_projects as f64) * 100.0;
-
-        savings_map.insert((*year, work_type.clone()), avg_savings);
-
-        report3.push(PerformanceMetrics {
-            funding_year: *year,
-            type_of_work: work_type.clone(),
-            total_projects,
-            avg_savings,
-            overrun_rate,
-            yoy_change: 0.0,
-        });
-    }
-
-    // Calculate YoY
-    for row in report3.iter_mut() {
-        if row.funding_year == 2021 {
-            row.yoy_change = 0.0; // Baseline year
-        } else {
-            let prev_year_savings =
-                savings_map.get(&(row.funding_year - 1, row.type_of_work.clone()));
-            
-            if let Some(prev_savings) = prev_year_savings {
-                if *prev_savings != 0.0 {
-                    row.yoy_change =
-                        ((row.avg_savings - prev_savings) / prev_savings.abs()) * 100.0;
-                } else {
-                    row.yoy_change = if row.avg_savings > 0.0 { 100.0 } else { 0.0 };
-                }
-            } else {
-                row.yoy_change = 0.0; // No data for previous year
-            }
-        }
-    }
-
-    // Sort per REQ-0008
-    report3.sort_by(|a, b| {
-        a.funding_year.cmp(&b.funding_year).then_with(|| {
-            b.avg_savings
-                .partial_cmp(&a.avg_savings)
-                .unwrap_or(Ordering::Equal)
-        })
-    });
-
-    report3
-}
-
-fn calculate_summary_json(projects: &[Project], report2: &[FinancialEfficiencies]) -> SummaryJson {
-    let delays: Vec<i64> = projects.iter().filter_map(|p| p.completion_delay_days).collect();
-    let global_avg_delay = if !delays.is_empty() {
-        delays.iter().sum::<i64>() as f64 / delays.len() as f64
-    } else {
-        0.0
-    };
-
-    // provinces (per REQ-0009)
-    let total_provinces = projects
-        .iter()
-        .map(|p| &p.region)
-        .collect::<HashSet<_>>()
-        .len();
-
-    SummaryJson {
-        total_projects_analyzed: projects.len(),
-        total_budget_analyzed: projects.iter().map(|p| p.approved_budget).sum(),
-        global_avg_delay,
-        total_contractors: report2.len(),
-        total_provinces,
-    }
-}
-
-fn calculate_median_savings(group: &[&Project]) -> f64 {
-    let mut savings: Vec<f64> = group.iter().map(|p| p.cost_savings).collect();
-    if savings.is_empty() {
-        return 0.0;
-    }
-
-    savings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-    let mid = savings.len() / 2;
-
-    if savings.len() % 2 == 0 {
-        (savings[mid - 1] + savings[mid]) / 2.0
-    } else {
-        savings[mid]
-    }
-}
-
-fn calculate_avg_delay(group: &[&Project]) -> f64 {
-    let delays: Vec<i64> = group.iter().filter_map(|p| p.completion_delay_days).collect();
-    if delays.is_empty() {
-        0.0
-    } else {
-        delays.iter().sum::<i64>() as f64 / delays.len() as f64
-    }
-}
-
-// I/O Helpers
-fn write_csv<T: Serialize>(data: &[T], filename: &str) -> Result<(), Box<dyn Error>> {
-    let mut writer = WriterBuilder::new().from_path(filename)?;
-    for row in data {
-        writer.serialize(row)?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
-fn write_json<T: Serialize>(data: &T, filename: &str) -> Result<(), Box<dyn Error>> {
-    let file = File::create(filename)?;
-    serde_json::to_writer_pretty(file, data)?;
-    Ok(())
+    println!("{:-<130}\n", "");
 }

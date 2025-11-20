@@ -1,9 +1,7 @@
 /*********************
-last names: crisologo, cruz, cunanan, iwata
-language: kotlin
-paradigm(s): imperative, functional, object-oriented
- 
-
+Last names: Crisologo, Cruz, Cunanan, Iwata
+Language: Kotlin
+Paradigm(s): Imperative, Functional, Object-Oriented
  *********************/
 
  import java.time.LocalDate
@@ -12,25 +10,21 @@ paradigm(s): imperative, functional, object-oriented
  import java.time.format.DateTimeParseException
  import java.time.temporal.ChronoUnit // for calculating day difference
  import kotlin.math.abs // for absolute value in yoy calculation
- import java.util.* // for locale in formatting
+ import java.util.*
 
  
- // --- helper for safe date parsing ---
  
  // safely converts a string to a localdate, returning null if parsing fails or the string is empty
  private fun String.toDateOrNull(): LocalDate? {
      if (this.isBlank()) return null
      return try {
-         // assuming all date format is yyyy-mm-dd in the csv file (iso_local_date)
          LocalDate.parse(this, DateTimeFormatter.ISO_LOCAL_DATE)
      } catch (e: DateTimeParseException) {
          null // returns null on invalid date format
      }
  }
- 
- // --- helper for statistical calculations ---
- 
- // extension function to calculate the median of a list of doubles
+  
+ // function to calculate the median 
  private fun List<Double>.median(): Double {
     if (isEmpty()) return 0.0
     val sorted = this.sorted()
@@ -56,16 +50,17 @@ paradigm(s): imperative, functional, object-oriented
     val fundingYear: Int?, 
     // fields required for grouping and reporting
     val region: String, 
+    val province: String,
     val mainIsland: String,
     val contractorName: String, 
     val typeOfWork: String 
 ) {
-    // derived field: cost savings = approvedbudgetforcontract - contractcost. computed once, on first access.
+    // derived field: cost savings = approvedbudgetforcontract - contractcost
     val costSavings: Double by lazy {
         approvedBudget - contractCost
     }
 
-    // derived field: completion delay days. computed once, on first access.
+    // derived field: completion delay days
     val completionDelayDays: Long? by lazy {
         if (startDate != null && completionDate != null) {
             // calculates the duration between start and completion (positive if completion > start)
@@ -77,7 +72,6 @@ paradigm(s): imperative, functional, object-oriented
     }
 }
  
- // --- file reading function ---
  
  // helper class to return both the list of projects and the error count
  data class IngestionResult(
@@ -85,6 +79,8 @@ paradigm(s): imperative, functional, object-oriented
     val totalRowsRead: Int,
     val errorRowCount: Int
  )
+
+ // file reading function 
 
  fun readProjectsFromFile(fileName: String): IngestionResult {
      val projects = mutableListOf<FloodProject>()
@@ -108,6 +104,7 @@ paradigm(s): imperative, functional, object-oriented
      // column indices from the csv header (verified)
      val mainIslandIdx = 0
      val regionIdx = 1
+     val provinceIdx = 2
      val typeOfWorkIdx = 8
      val fundingYearIdx = 9 
      val projectIdIdx = 6
@@ -122,10 +119,10 @@ paradigm(s): imperative, functional, object-oriented
      for (line in lines.drop(1)) { // skip the header line
          if (line.isBlank()) continue
          
-         // split the line and remove surrounding quotes from the fields
+         // split line and remove surrounding quotes from the fields
          val fields = csvPattern.split(line).map { it.trim().removeSurrounding("\"") }
          
-         // basic validation: check if we have enough columns
+         // basic validation: check if  enough columns
          if (fields.size < minColumns) {
              errorRowCount++
              continue
@@ -139,25 +136,25 @@ paradigm(s): imperative, functional, object-oriented
              val contractCostStr = fields[contractCostIdx].replace(",", "")
              
              // strict parsing for financial fields
-             // if they are null (invalid format/non-numeric like "clustered with...") it will get defaulted to 0
+             // if they are null (invalid format) it will get defaulted to 0
              var approvedBudget = approvedBudgetStr.toDoubleOrNull()
              var contractCost = contractCostStr.toDoubleOrNull()
              
-             // basic validation: check if required financial fields are valid/present
              if (approvedBudget == null || contractCost == null) {
                  approvedBudget = 0.0;
                  contractCost = 0.0;
              }
              
-             // safely parse date and year
+             // parse date and year
              val completionDate = fields[completionDateIdx].toDateOrNull()
              val startDate = fields[startDateIdx].toDateOrNull()
              
-             // read funding year directly and safely
+             // read funding year 
              val fundingYear = fields[fundingYearIdx].toIntOrNull()
              
              // extract required grouping fields
              val region = fields.getOrElse(regionIdx) { "N/A Region" } 
+             val province = fields.getOrElse(provinceIdx) { "N/A Province" }
              val mainIsland = fields.getOrElse(mainIslandIdx) { "N/A Island" } 
              val contractorName = fields.getOrElse(contractorIdx) { "N/A Contractor" } 
              val typeOfWork = fields.getOrElse(typeOfWorkIdx) { "N/A Work Type" } 
@@ -171,6 +168,7 @@ paradigm(s): imperative, functional, object-oriented
                      completionDate = completionDate,
                      fundingYear = fundingYear, // populate the explicit field
                      region = region,
+                     province = province,
                      mainIsland = mainIsland,
                      contractorName = contractorName,
                      typeOfWork = typeOfWork
@@ -185,11 +183,8 @@ paradigm(s): imperative, functional, object-oriented
      return IngestionResult(projects, linesReadCount, errorRowCount)
  }
  
- // --- filtering function ---
+ // filtering function for specific years
  
- /**
- * filters projects to include only those funded within the specified year range (2021-2023)
- */
  fun filterProjectsByYear(projects: List<FloodProject>, startYear: Int, endYear: Int): List<FloodProject> {
      return projects.filter { project ->
          val year = project.fundingYear
@@ -198,11 +193,8 @@ paradigm(s): imperative, functional, object-oriented
      }
  }
  
- // --- more helpers but for outpyt---
+ //writes data map to a standardized csv file 
  
- /**
- * writes data map to a standardized csv file and displays the first row in table format
- */
  fun writeToCsv(fileName: String, header: List<String>, data: List<List<Any>>) {
      val file = File(fileName)
      val headerString = header.joinToString(",")
@@ -262,21 +254,27 @@ paradigm(s): imperative, functional, object-oriented
  }
  
  
- // ---------------------------------------------------------------------------------------------------
- // report generation funcs
- // ---------------------------------------------------------------------------------------------------
+
+ // report generation: regional flood mitigation efficiency summary
  
- /**
- * report 1: regional flood mitigation efficiency summary
- */
  fun generateRegionalEfficiencyReport(projects: List<FloodProject>) {
      
+     data class TempRegionData(
+         val region: String,
+         val mainIsland: String,
+         val totalBudget: Double,
+         val medianSavings: Double,
+         val avgDelay: Double,
+         val highDelayPct: Double,
+         val rawScore: Double
+     )
+
      val groupedData = projects
          .filter { it.completionDelayDays != null } // only consider projects with completion data
          .groupBy { Pair(it.region, it.mainIsland) }
-         .mapValues { (_, regionalProjects) ->
+         .map { (key, regionalProjects) ->
              
-             // calculate required metrics
+             // calculat required metrics
              val totalBudget = regionalProjects.sumOf { it.approvedBudget } // aggregate total approvedbudgetforcontract
              val costSavingsList = regionalProjects.map { it.costSavings }
              val medianSavings = costSavingsList.median() // median costsavings
@@ -290,46 +288,46 @@ paradigm(s): imperative, functional, object-oriented
                                  else 0.0
              
              // calculate efficiency score = (median savings / average delay) * 100, normalized to 0-100
-             val efficiencyScore = when {
-                 // case 1: perfect/early completion (avgdelay <= 0)
-                 averageDelay <= 0.0 -> {
-                     // if median savings are positive, reward with max score (100.0); otherwise, 0.0
-                     if (medianSavings > 0) 100.0 else 0.0
-                 }
-                 // case 2: normal calculation (avgdelay > 0)
-                 else -> {
-                     val rawScore = (medianSavings / averageDelay) * 100 
-                     rawScore.coerceIn(0.0, 100.0) // normalize to 0-100
-                 }
-             }
-             
-             mapOf(
-                 "totalbudget" to totalBudget,
-                 "mediansavings" to medianSavings,
-                 "avgdelay" to averageDelay,
-                 "highdelaypct" to highDelayPct,
-                 "efficiencyscore" to efficiencyScore
-             )
+             val divisor = if (abs(averageDelay) < 0.001) 1.0 else averageDelay
+             val rawScore = (medianSavings / divisor) * 100.0
+
+             TempRegionData(key.first, key.second, totalBudget, medianSavings, averageDelay, highDelayPct, rawScore)
          }
          
+     val minScore = groupedData.minOfOrNull { it.rawScore } ?: 0.0
+     val maxScore = groupedData.maxOfOrNull { it.rawScore } ?: 0.0
+     val range = maxScore - minScore
+
+     val finalData = groupedData.map { data ->
+         val efficiencyScore = if (range == 0.0) 100.0 else ((data.rawScore - minScore) / range) * 100.0
+         mapOf(
+             "region" to data.region,
+             "mainIsland" to data.mainIsland,
+             "totalBudget" to data.totalBudget,
+             "medianSavings" to data.medianSavings,
+             "avgDelay" to data.avgDelay,
+             "highDelayPct" to data.highDelayPct,
+             "efficiencyScore" to efficiencyScore
+         )
+     }
+
      // sort descending by efficiencyscore
-     val sortedData = groupedData.entries
-         .sortedByDescending { it.value["efficiencyScore"] as Double }
+     val sortedData = finalData.sortedByDescending { it["efficiencyScore"] as Double }
  
      val header = listOf("region", "mainisland", "totalbudget", "mediansavings", "avgdelay", "highdelaypct", "efficiencyscore")
-     val data = sortedData.map { (key, metrics) -> // using destructuring for clean access
+     val csvData = sortedData.map { metrics -> 
          listOf(
-             key.first, 
-             key.second, 
-             metrics["totalbudget"] as Double, 
-             metrics["mediansavings"] as Double, 
-             metrics["avgdelay"] as Double, 
-             metrics["highdelaypct"] as Double, 
-             metrics["efficiencyscore"] as Double
+             metrics["region"] as String, 
+             metrics["mainIsland"] as String, 
+             metrics["totalBudget"] as Double, 
+             metrics["medianSavings"] as Double, 
+             metrics["avgDelay"] as Double, 
+             metrics["highDelayPct"] as Double, 
+             metrics["efficiencyScore"] as Double
          )
      }
  
-     writeToCsv("report1_regional_summary.csv", header, data) // output as csv
+     writeToCsv("report1_regional_summary.csv", header, csvData) // output as csv
      
      // --- Console Table Display (Full Report) ---
      val lineLength = 105
@@ -346,7 +344,7 @@ paradigm(s): imperative, functional, object-oriented
      println("${"-".repeat(lineLength)}")
  
      // print Data Rows 
-     for (row in data.take(15)) {
+     for (row in csvData.take(15)) {
          val region = row[0] as String
          val mainIsland = row[1] as String
          // Abbreviation/truncation for fit (18 chars for region, 13 for island)
@@ -368,9 +366,9 @@ paradigm(s): imperative, functional, object-oriented
      println("Table exported to report1_regional_summary.csv")
  }
  
- /**
- * report 2: top contractors performance ranking
- */
+ 
+ // report generation: top contractors performance ranking
+ 
  fun generateContractorRankingReport(projects: List<FloodProject>, topN: Int = 15, minProjects: Int = 5) {
  
      // only consider projects with completion data
@@ -387,16 +385,17 @@ paradigm(s): imperative, functional, object-oriented
              if (numProjects < minProjects) return@mapValues null 
              
              val totalSavings = contractorProjects.sumOf { it.costSavings }
-             val averageDelay = contractorProjects.map { it.completionDelayDays!!.toDouble() }.average()
+             val delays = contractorProjects.mapNotNull { it.completionDelayDays }
+             val averageDelay = if (delays.isNotEmpty()) delays.map { it.toDouble() }.average() else 0.0
              
              // calculate reliability index
-             val delayFactor = 1.0 - (averageDelay / 90.0).coerceIn(0.0, 1.0)
-             val savingsFactor = if (totalCost > 0) totalSavings / totalCost else 0.0
+             val term1 = 1.0 - (averageDelay / 90.0)
+             val term2 = if (totalCost != 0.0) totalSavings / totalCost else 0.0
              
-             val rawIndex = delayFactor * savingsFactor * 100
-             val reliabilityIndex = rawIndex.coerceIn(0.0, 100.0) // capped at 100
+             var reliabilityIndex = term1 * term2 * 100.0
+             if (reliabilityIndex > 100.0) reliabilityIndex = 100.0 // capped at 100
  
-             val riskFlag = if (reliabilityIndex < 50.0) "High Risk" else "Low Risk" // Capitalization added here
+             val riskFlag = if (reliabilityIndex < 50.0) "High Risk" else "-" // Capitalization added here
              
              mapOf(
                  "totalcost" to totalCost,
@@ -411,7 +410,7 @@ paradigm(s): imperative, functional, object-oriented
          
      // rank top n by totalcost (descending)
      val topContractors = groupedData.entries
-         .sortedByDescending { it.value!!["avgdelay"] as Double }
+         .sortedByDescending { it.value!!["totalcost"] as Double }
          .take(topN)
  
      val header = listOf("rank", "contractor", "totalcost", "numprojects", "avgdelay", "totalsavings", "reliabilityindex", "riskflag")
@@ -431,14 +430,13 @@ paradigm(s): imperative, functional, object-oriented
  
      writeToCsv("report2_contractor_ranking.csv", header, data) // output as csv
      
-     // --- Console Table Display (Full Report) ---
      val lineLength = 117
      println("\n${"-".repeat(lineLength)}")
      println("Report 2: Top $topN Contractors Performance Ranking (Min $minProjects Projects)")
      println("(Filtered: 2021-2023 Projects)")
      println("${"-".repeat(lineLength)}")
 
-     // Print Header
+     // print header
      println(String.format(
          "%-6s | %-30s | %18s | %8s | %10s | %18s | %10s | %10s",
          "Rank", "Contractor", "Total Cost", "Projects", "Avg Delay", "Total Savings", "Reliability", "Risk Flag"
@@ -447,10 +445,9 @@ paradigm(s): imperative, functional, object-oriented
 
     
 
-     // Print Data Rows
+     // print data rows
      for (row in data) {
          val contractorName = row[1] as String
-         // Abbreviation/truncation for fit (30 chars for contractor name)
          val displayedContractor = if (contractorName.length > 30) contractorName.substring(0, 29) + ".." else contractorName
 
          println(String.format(Locale.US,
@@ -469,9 +466,7 @@ paradigm(s): imperative, functional, object-oriented
      println("Table exported to report2_contractor_ranking.csv")
  }
  
- /**
- * report 3: annual project type cost overrun trends
- */
+// report generation: annual trends report
  fun generateAnnualTrendsReport(projects: List<FloodProject>) {
      
      // group by fundingyear and typeofwork
@@ -481,7 +476,8 @@ paradigm(s): imperative, functional, object-oriented
          .mapValues { (_, workProjects) ->
              
              val totalProjects = workProjects.size
-             val avgCostSavings = workProjects.map { it.costSavings }.average()
+             val totalSavings = workProjects.sumOf { it.costSavings }
+             val avgCostSavings = totalSavings / totalProjects
              
              val overrunCount = workProjects.count { it.costSavings < 0 } // overrun if costsavings < 0
              val overrunRate = (overrunCount.toDouble() / totalProjects) * 100
@@ -505,14 +501,12 @@ paradigm(s): imperative, functional, object-oriented
          val currentAvg = metrics["avgsavings"] as Double
          var yoyChange = 0.0
  
-         if (year > 2021) {
-             val baselineAvg = yearBaselines[typeOfWork]
-             // only calculate yoy if baseline exists and is not zero (to prevent division by zero)
-             if (baselineAvg != null && baselineAvg != 0.0) {
-                 // yoy change = ((current avg - 2021 avg) / |2021 avg|) * 100
-                 yoyChange = ((currentAvg - baselineAvg) / abs(baselineAvg)) * 100
-             } 
-         } 
+         val baselineAvg = yearBaselines[typeOfWork]
+         // only calculate yoy if baseline exists and is not zero (to prevent division by zero)
+         if (baselineAvg != null && baselineAvg != 0.0) {
+             // yoy change = ((current avg - 2021 avg) / |2021 avg|) * 100
+             yoyChange = ((currentAvg - baselineAvg) / abs(baselineAvg)) * 100
+         }
          
          // return a pair of (key, value) to build the map
          key to (metrics + ("yoychange" to yoyChange))
@@ -539,21 +533,19 @@ paradigm(s): imperative, functional, object-oriented
  
      writeToCsv("report3_annual_trends.csv", header, data) // output as csv
      
-     // --- Console Table Display (Full Report) ---
      val lineLength = 104
      println("\n${"-".repeat(lineLength)}")
      println("Report 3: Annual Project Type Cost Overrun Trends")
      println("(Filtered: 2021-2023 Projects)")
      println("${"-".repeat(lineLength)}")
  
-     // Print Header
+     // print header
      println(String.format(
          "%-6s | %-35s | %10s | %18s | %15s | %15s",
          "Year", "Type of Work", "Projects", "Avg Savings (PHP)", "Overrun Rate %", "YoY Change %"
      ))
      println("${"-".repeat(lineLength)}")
  
-     // Print Data Rows (Limit to Top 15 for console display)
      for (row in data.take(15)) {
          val typeOfWork = row[1] as String
          // Abbreviation/truncation for fit (35 chars for type of work)
@@ -580,25 +572,23 @@ paradigm(s): imperative, functional, object-oriented
      println("\n--- Generating Summary JSON ---")
      
      val completedProjects = filteredProjects.filter { it.completionDelayDays != null }
-     val avgDelay = completedProjects.map { it.completionDelayDays!!.toDouble() }.average()
+     val totalDelay = completedProjects.sumOf { it.completionDelayDays!! }
+     val avgDelay = if (filteredProjects.isNotEmpty()) totalDelay.toDouble() / filteredProjects.size else 0.0
      val totalSavings = filteredProjects.sumOf { it.costSavings }
      val uniqueContractors = filteredProjects.map { it.contractorName }.distinct().size
-     // using uniqueregions as a measure of geographic coverage
-     val uniqueRegions = filteredProjects.map { it.region }.distinct().size
+     val uniqueProvinces = filteredProjects.map { it.province }.distinct().size
      
      val summaryData = mapOf(
-         "total_projects_read" to allProjects.size,
          "total_projects_analyzed" to filteredProjects.size,
-         "total_unique_contractors" to uniqueContractors,
-         "total_unique_regions" to uniqueRegions, 
+         "total_contractors" to uniqueContractors,
+         "total_provinces" to uniqueProvinces,
          "global_avg_delay" to avgDelay,
-         "total_savings_analyzed" to totalSavings
+         "total_savings" to totalSavings
      )
      
      writeToJson("summary.json", summaryData) // output as json
  }
  
- // --- main execution function with interactive menu ---
  
  fun main() {
      val fileName = "dpwh_flood_control_projects.csv" 

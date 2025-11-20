@@ -61,26 +61,17 @@ function loadFileSync() {
     if(Number(data.FundingYear) < 2021 || Number(data.FundingYear) > 2023){
         continue; 
       }
-    
-    if(isNaN(Number(data.ApprovedBudgetForContract)) ||
-       isNaN(Number(data.ContractCost)) ||
-       isNaN(Number(data.ProjectLatitude)) ||
-       isNaN(Number(data.ProjectLongitude)) ||
-       isNaN(Number(data.ProvincialCapitalLatitude)) ||
-       isNaN(Number(data.ProvincialCapitalLongitude))
-      ){
-        continue;
-      }else{
-        //convert string to number
-        data.FundingYear = Number(data.FundingYear);
-      
-        data.ApprovedBudgetForContract = Number(data.ApprovedBudgetForContract);
-        data.ContractCost = Number(data.ContractCost);
-        data.ProjectLatitude = Number(data.ProjectLatitude);
-        data.ProjectLongitude = Number(data.ProjectLongitude);
-        data.ProvincialCapitalLatitude = Number(data.ProvincialCapitalLatitude);
-        data.ProvincialCapitalLongitude = Number(data.ProvincialCapitalLongitude);
-      }
+    if(isNaN(Number(data.ApprovedBudgetForContract))){
+      data.ApprovedBudgetForContract = 0;
+    }
+    //convert string to number
+    data.FundingYear = Number(data.FundingYear);
+    data.ApprovedBudgetForContract = Number(data.ApprovedBudgetForContract);
+    data.ContractCost = Number(data.ContractCost);
+    data.ProjectLatitude = Number(data.ProjectLatitude);
+    data.ProjectLongitude = Number(data.ProjectLongitude);
+    data.ProvincialCapitalLatitude = Number(data.ProvincialCapitalLatitude);
+    data.ProvincialCapitalLongitude = Number(data.ProvincialCapitalLongitude);
     //convert string to date
     data.ActualCompletionDate = new Date(data.ActualCompletionDate);
     data.StartDate = new Date(data.StartDate);
@@ -128,323 +119,244 @@ function AverageDelayDays(dataSet){
 function printSampleToConsole(records){
   console.table(records.slice(0,2));
 }
-//REPORT FUNCTIONS
 
+
+function toNum(v){
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function safeAvg(arr){
+  if(!Array.isArray(arr) || arr.length === 0) return 0;
+  return arr.reduce((s, x) => s + toNum(x), 0) / arr.length;
+}
+
+function median(arr){
+  if(!Array.isArray(arr) || arr.length === 0) return 0;
+  const sorted = [...arr].map(toNum).sort((a,b)=>a-b);
+  const n = sorted.length;
+  if(n % 2 === 0) return (sorted[n/2 - 1] + sorted[n/2]) / 2;
+  return sorted[Math.floor(n/2)];
+}
+
+function percent(count, total){
+  if(total === 0) return 0;
+  return (count / total) * 100;
+}
+
+//REPORT 1 (Regional Flood Mitigation Efficiency Summary)
 function report1(){
-  console.log("Outputs are saved into individual CSV Report Files.");
-  console.log("\nReport 1: Regional Flood Mitigation Efficiency Summary");
-  console.log("\nFiltered Projects from 2021-2023 and Region");
-  
-  //map records to new array of objects with required fields
-  let template = records.map(record => {
-    return {
-      Region: record.Region,
-      ApprovedBudgetForContract: record.ApprovedBudgetForContract,
-      ContractCost: record.ContractCost,
-      CostSavings: generateCostSavings(record.ApprovedBudgetForContract, record.ContractCost),
-      CompletionDelayDays: generateCompletionDelayDays(record.StartDate, record.ActualCompletionDate)
-    };
-  });
-  template.sort((a, b) => {
-    const regionCompare = a.Region.localeCompare(b.Region);
-    if (regionCompare !== 0) return regionCompare;//sort by region A to Z
-
-    return b.CostSavings - a.CostSavings;//sort by costsavings high to low
-  });
-
-
-  //get each region and maps it to a new array of objects with unique regions
-  const uniqueRegions = Array.from(new Set(records.map(r => r.Region)));
-
-  //initialize report1 structure
-  const report1 = uniqueRegions.map(region => ({
-    Region: region,
-    MainIsland: regionIslandGroup[region],
-    TotalApprovedBudget: 0,
-    MedianCostSavings: 0,
-    AverageCompletionDelayDays: 0,
-    PercentageDelay: 0,
-    EfficiencyScore: 0
+  console.log('\nReport 1: Regional Flood Mitigation Efficiency Summary');
+  //build template with normalized values
+  const template = records.map(r => ({
+    Region: r.Region || 'Unknown',
+    ApprovedBudgetForContract: toNum(r.ApprovedBudgetForContract),
+    ContractCost: toNum(r.ContractCost),
+    CostSavings: generateCostSavings(toNum(r.ApprovedBudgetForContract), toNum(r.ContractCost)),
+    CompletionDelayDays: generateCompletionDelayDays(new Date(r.StartDate), new Date(r.ActualCompletionDate))
   }));
 
-  //total approved budget for each region
-  template.forEach(data =>{
-    let regionData = report1.find(r => r.Region === data.Region);
-    let sum = 0;
-    if(regionData && !isNaN(data.ApprovedBudgetForContract)){
-      sum += data.ApprovedBudgetForContract;
-    }
-    regionData.TotalApprovedBudget = sum.toFixed(2);
-  })
-  
-  
-  //group cost savings by region
-  const grouped = {};
-  template.forEach(data =>{
-    if(!grouped[data.Region]){
-      grouped[data.Region] = [];
-    }
-    grouped[data.Region].push(data.CostSavings);
+  //set of regions present
+  const uniqueRegions = Array.from(new Set(template.map(t => t.Region))).sort((a,b)=>a.localeCompare(b));
+
+  //prepare grouped maps
+  const costSavingsByRegion = {};
+  const delaysByRegion = {};
+  const totalApprovedByRegion = {};
+
+  uniqueRegions.forEach(region => {
+    costSavingsByRegion[region] = [];
+    delaysByRegion[region] = [];
+    totalApprovedByRegion[region] = 0;
   });
 
-  //calculate median for each region
-  report1.forEach(data =>{
-  data.MedianCostSavings = costSavingsMedian(grouped[data.Region]).toFixed(2);
-  })
-
-  //group completion delay days by region
-  const delayDays = {};
-  template.forEach(data =>{
-    if(!delayDays[data.Region]){
-      delayDays[data.Region] = [];
-    }
-    delayDays[data.Region].push(data.CompletionDelayDays);
+  template.forEach(t => {
+    costSavingsByRegion[t.Region].push(t.CostSavings);
+    delaysByRegion[t.Region].push(t.CompletionDelayDays);
+    totalApprovedByRegion[t.Region] += t.ApprovedBudgetForContract;
   });
 
-  //calculate average completion delay days for each region
-  report1.forEach(data =>{
-    data.AverageCompletionDelayDays = AverageDelayDays(delayDays[data.Region]).toFixed(2);
-  });
-  
-  //calculate percentage delay for each region
-  report1.forEach(data =>{
-    data.PercentageDelay = PercentageDelay(delayDays[data.Region]).toFixed(2);
-  })
+  const report = uniqueRegions.map(region => {
+    const medianCost = median(costSavingsByRegion[region]);
+    const avgDelay = safeAvg(delaysByRegion[region]);
+    const delayedCount = delaysByRegion[region].filter(d => d > 30).length;
+    const pctDelay = percent(delayedCount, delaysByRegion[region].length);
+    const effScore = avgDelay === 0 ? 0 : (medianCost / avgDelay) * 100;
 
-  //calculate efficiency score for each region
-  report1.forEach(data =>{
-    data.EfficiencyScore = EfficiencyScore(data.MedianCostSavings, data.AverageCompletionDelayDays).toFixed(2);
-  });
-
-  //sort report1 by efficiency score high to low
-  report1.sort((a, b) => {
-    return b.EfficiencyScore - a.EfficiencyScore;
+    return {
+      Region: region,
+      MainIsland: regionIslandGroup[region] || 'Unknown',
+      TotalApprovedBudget: totalApprovedByRegion[region],
+      MedianCostSavings: medianCost,
+      AverageCompletionDelayDays: avgDelay,
+      PercentageDelay: pctDelay,
+      EfficiencyScore: effScore
+    };
   });
 
- 
-  printSampleToConsole(report1);
-  //save report1 to CSV
-  saveToCSV(report1, "report1_regional_summary.csv");
-  saveToCSV(template,"template1.csv");
-  
-  //Cost Savings Median Function
-  function costSavingsMedian(dataSet){
-    let median = 0;
-    let dataSize = dataSet.length;
-    if(dataSize % 2 === 0){
-      median = (dataSet[dataSize/2] + dataSet[dataSize/2+1])/2
-    }else{
-      median = dataSet[Math.floor(dataSize/2)];
-    }
-    return median;
-  }
+  //sort by efficiency desc
+  report.sort((a,b)=> b.EfficiencyScore - a.EfficiencyScore);
 
-  //Percentage Delay Function
-  function PercentageDelay(dataSet){
-    let percentage = 0;
-    let counter = 0;
-    let RegionSize = dataSet.length;
-    for(let i = 0; i < RegionSize; i++){
-      if(dataSet[i] > 30){
-        counter++;
-      }
-    }
-    return (counter/RegionSize) * 100;
-  }
-  //Efficiency Score Function
-  function EfficiencyScore(medianCostSavings, AverageDelay){
-    return (medianCostSavings/AverageDelay) * 100;
-  }
+  //format numbers to 2 decimals
+  report.forEach(r => {
+    r.TotalApprovedBudget = Number(r.TotalApprovedBudget.toFixed(2));
+    r.MedianCostSavings = Number(r.MedianCostSavings.toFixed(2));
+    r.AverageCompletionDelayDays = Number(r.AverageCompletionDelayDays.toFixed(2));
+    r.PercentageDelay = Number(r.PercentageDelay.toFixed(2));
+    r.EfficiencyScore = Number(r.EfficiencyScore.toFixed(2));
+  });
+
+  printSampleToConsole(report);
+  saveToCSV(report, 'report1_regional_summary.csv');
+  saveToCSV(template, 'template1.csv');
 }
 
-//Report 2 Function
+//REPORT 2 (Contractor Reliability Analysis)
 function report2(){
+  console.log('\nReport 2: Contractor Reliability Analysis');
+  console.log('(Top 15 by total ContractCost and With > 5 projects)');
 
-  //map records to new array of objects with required fields
-  console.log("\nReport 2: Contractor Reliability Analysis");
-  console.log("\nTop Contractors Performance Ranking");
-  console.log("(Top 15 by total Cost and With > 5 projects)");
-  const uniqueContractors = Array.from(new Set(records.map(r => r.Contractor)));
-  const report2 = uniqueContractors.map(contractor => ({
-    Contractor: contractor, 
-    TotalProjects: 0,
-    ContractCost: 0,
-    AverageCompletionDelayDays: 0,
-    TotalCostSavings:0,
-    ReliabilityIndex:0,
-    Flag: ""
+  //normalize
+  const template = records.map(r => ({
+    Contractor: (r.Contractor || 'Unknown').trim(),
+    ApprovedBudgetForContract: toNum(r.ApprovedBudgetForContract),
+    ContractCost: toNum(r.ContractCost),
+    CostSavings: generateCostSavings(toNum(r.ApprovedBudgetForContract), toNum(r.ContractCost)),
+    CompletionDelayDays: generateCompletionDelayDays(new Date(r.StartDate), new Date(r.ActualCompletionDate))
   }));
 
-  let template2 = records.map(record => {
+  //group by contractor
+  const byContractor = {};
+  template.forEach(t => {
+    const key = t.Contractor || 'Unknown';
+    if(!byContractor[key]) byContractor[key] = { rows: [], totalContractCost: 0, totalApproved: 0 };
+    byContractor[key].rows.push(t);
+    byContractor[key].totalContractCost += t.ContractCost;
+    byContractor[key].totalApproved += t.ApprovedBudgetForContract;
+  });
+
+  //build report array
+  let report = Object.keys(byContractor).map(name => {
+    const info = byContractor[name];
+    const totalProjects = info.rows.length;
+    const avgDelay = safeAvg(info.rows.map(r=>r.CompletionDelayDays));
+    const totalCostSavings = info.rows.reduce((s,x)=>s + x.CostSavings, 0);
+    const contractCost = info.totalContractCost;
+
+    //ReliabilityIndex formula: (1 - (avgDelay/90)) * (totalCostSavings/contractCost) * 100
+    let reliability = 0;
+    if(contractCost > 0){
+      reliability = (1 - (avgDelay / 90)) * (totalCostSavings / contractCost) * 100;
+    }
+    //reliability = Number(Math.max(0, Math.min(100, reliability)).toFixed(2));
+
+    const flag = reliability < 50 ? 'High Risk' : 'Low Risk';
+
     return {
-      Contractor: record.Contractor,
-      apbudg: record.ApprovedBudgetForContract,
-      cost: record.ContractCost,
-      CostSavings: generateCostSavings(record.ApprovedBudgetForContract, record.ContractCost),
-      CompletionDelayDays: generateCompletionDelayDays(record.StartDate, record.ActualCompletionDate)
-    };
-  });
-  
-
-  template2.sort((a, b) => {
-    const contractorCompare = a.Contractor.localeCompare(b.Contractor);
-    if (contractorCompare !== 0) return contractorCompare; // Contractor A→Z
-
-    return b.ContractCost - a.ContractCost; // CostSavings high→low
-  });
-
-  //total approved budget for each region
-  template2.forEach(data =>{
-    let contractorData = report2.find(r => r.Contractor === data.Contractor);
-    let counter = 0;
-    if(contractorData){
-      contractorData.TotalProjects +=1;
-    }
-  })
-
-  for (let i = report2.length - 1; i >= 0; i--) {
-    if (report2[i].TotalProjects <= 5) {
-      report2.splice(i, 1); // removes that row
-    }
-  }
-  template2.forEach(data =>{
-    let contractorData = report2.find(r => r.Contractor === data.Contractor);
-    
-    if(contractorData){
-      contractorData.ContractCost += data.cost;
-    }
-  })
-
-  //group completion delay days by contractor
-  const delayDays_Contractor = {};
-  template2.forEach(data =>{
-    if(!delayDays_Contractor[data.Contractor]){
-      delayDays_Contractor[data.Contractor] = [];
-    }
-    delayDays_Contractor[data.Contractor].push(data.CompletionDelayDays);
-  });
-
-  //Generate average completion delay days for each contractor (reused function from report 1)
-  report2.forEach(data =>{
-    data.AverageCompletionDelayDays = AverageDelayDays(delayDays_Contractor[data.Contractor]).toFixed(2);
-  });
-
-  //total cost savings for each contractor
-  template2.forEach(data =>{
-    let contractorData = report2.find(r => r.Contractor === data.Contractor);
-    if(contractorData){
-      contractorData.TotalCostSavings += data.CostSavings;
-    }
-  });
-
-  report2.forEach(r => {
-    r.TotalCostSavings = r.TotalCostSavings.toFixed(2);
-    r.ContractCost = r.ContractCost.toFixed(2);
-    r.ReliabilityIndex = r.ReliabilityIndex.toFixed(2);
-  });
-
-  //calculate reliability index and flag for each contractor
-  report2.forEach(data =>{
-    
-    let reliabilityIndex = (1-(data.AverageCompletionDelayDays/90)) * (data.TotalCostSavings/data.ContractCost) * 100;
-    data.ReliabilityIndex = reliabilityIndex;
-    if(reliabilityIndex > 100){
-      data.ReliabilityIndex = 100;
-    }
-    if(reliabilityIndex < 50){
-      data.Flag = "High Risk";
-    }else{
-      data.Flag = "Low Risk";
-    }
-  })
-
-  report2.sort((a, b) => {
-
-    return b.ContractCost - a.ContractCost; // CostSavings high→low
-  });
-
-  for (let i = report2.length - 1; i >= 15; i--) {
-    report2.splice(i, 1); // removes that row
-  }
-  printSampleToConsole(report2);
-  saveToCSV(report2, "report2_contractor_ranking.csv");
-}
-
-function report3() {
-
-  console.log("\nReport 3: Annual Project Type cost overrun trends");
-  console.log("\nGrouped by Funding Year and Type of Work");
-  
-  //map records to new array of objects with required fields
-  let template3 = records.map(record => {
-    return {
-      FundingYear: record.FundingYear,
-      TypeOfWork: record.TypeOfWork,
-      CostSavings: generateCostSavings(record.ApprovedBudgetForContract, record.ContractCost)
-    };
-  });
-
-  //group by Funding Year and Type of Work
-  const groups = {};
-  template3.forEach(item => {
-    const key = `${item.FundingYear}|${item.TypeOfWork}`;
-    if (!groups[key]) {
-      groups[key] = {
-        FundingYear: item.FundingYear,
-        TypeOfWork: item.TypeOfWork,
-        CostSavingsList: []
-      };
-    }
-    groups[key].CostSavingsList.push(item.CostSavings);
-  });
-
-  //calculate metrics for each group
-  let report3 = Object.values(groups).map(group => {
-    const totalProjects = group.CostSavingsList.length;
-    const averageCostSavings = group.CostSavingsList.reduce((sum, n) => sum + n, 0) / totalProjects;
-    const overrunCount = group.CostSavingsList.filter(n => n < 0).length;
-    const overrunRate = (overrunCount / totalProjects) * 100;
-    return {
-      FundingYear: group.FundingYear,
-      TypeOfWork: group.TypeOfWork,
+      Contractor: name,
       TotalProjects: totalProjects,
-      AverageCostSavings: averageCostSavings,
-      OverrunRate: overrunRate,
+      ContractCost: Number(contractCost.toFixed(2)),
+      AverageCompletionDelayDays: Number(avgDelay.toFixed(2)),
+      TotalCostSavings: Number(totalCostSavings.toFixed(2)),
+      ReliabilityIndex: reliability,
+      Flag: flag
     };
   });
 
-  //calculate YoY change compared to 2021
-  const baseline = report3.filter(r => r.FundingYear == 2021);
+  //filter contractors with > 5 projects
+  report = report.filter(r => r.TotalProjects > 5);
 
-  //map through report3 to calculate YoY change
-  report3 = report3.map(entry => {
-    const base = baseline.find(b => b.TypeOfWork === entry.TypeOfWork);
-    if (base && base.AverageCostSavings !== 0) {
-      entry.YoYChange = ((entry.AverageCostSavings - base.AverageCostSavings) / Math.abs(base.AverageCostSavings)) * 100;
-    }
-    return entry;
-  });
+  //sort by ContractCost desc
+  report.sort((a,b)=> b.ContractCost - a.ContractCost);
 
-  //sort by Funding Year then Type of Work
-  report3.sort((a, b) => {
-  if (a.FundingYear !== b.FundingYear) {
-    return a.FundingYear - b.FundingYear;// numeric sort by year
-  }
-    return b.AverageCostSavings - a.AverageCostSavings; // alphabetic sort by name
-  });
+  //top 15
+  if(report.length > 15) report = report.slice(0,15);
 
-  report3.forEach(data =>{
-    data.AverageCostSavings = data.AverageCostSavings.toFixed(2);
-    data.OverrunRate = data.OverrunRate.toFixed(2)
-    if(!isNaN(Number(data.YoYChange))){
-      data.YoYChange = data.YoYChange.toFixed(2);
-    }
-  });
-
-
-  printSampleToConsole(report3);
-  saveToCSV(report3, "report3_annual_trend.csv");
+  printSampleToConsole(report);
+  saveToCSV(report, 'report2_contractor_ranking.csv');
 }
+
+//REPORT 3 (Annual Project Type cost overrun trends)
+function report3(){
+  console.log('\nReport 3: Annual Project Type cost overrun trends');
+
+  //normalize
+  const template = records.map(r => ({
+    FundingYear: toNum(r.FundingYear),
+    TypeOfWork: (r.TypeOfWork || 'Unknown').trim(),
+    CostSavings: generateCostSavings(toNum(r.ApprovedBudgetForContract), toNum(r.ContractCost))
+  }));
+
+  //group by FundingYear|TypeOfWork
+  const groups = {};
+  template.forEach(t => {
+    const year = t.FundingYear || 0;
+    const type = t.TypeOfWork || 'Unknown';
+    const key = `${year}|${type}`;
+    if(!groups[key]) groups[key] = { FundingYear: year, TypeOfWork: type, CostSavingsList: [] };
+    groups[key].CostSavingsList.push(t.CostSavings);
+  });
+
+  let report = Object.values(groups).map(g => {
+    const totalProjects = g.CostSavingsList.length;
+    const avgCostSavings = safeAvg(g.CostSavingsList);
+    const overrunCount = g.CostSavingsList.filter(n => toNum(n) < 0).length;
+    const overrunRate = percent(overrunCount, totalProjects);
+
+    return {
+      FundingYear: g.FundingYear,
+      TypeOfWork: g.TypeOfWork,
+      TotalProjects: totalProjects,
+      AverageCostSavings: avgCostSavings,
+      OverrunRate: overrunRate
+    };
+  });
+
+  //Year-over-Year (YoY) change relative to 2021 per TypeOfWork
+  const baselineByType = {};
+  report.filter(r => r.FundingYear === 2021).forEach(b => {
+    baselineByType[b.TypeOfWork] = b.AverageCostSavings;
+  });
+
+  report = report.map(r => {
+    const base = baselineByType[r.TypeOfWork];
+    if(typeof base !== 'undefined' && Math.abs(base) > 0.000001){
+      r.YoYChange = ((r.AverageCostSavings - base) / Math.abs(base)) * 100;
+    } else {
+      r.YoYChange = 0; //cannot compute meaningful YoY
+    }
+    return r;
+  });
+
+  //sort by FundingYear then by AverageCostSavings desc
+  report.sort((a,b)=>{
+    if(a.FundingYear !== b.FundingYear) return a.FundingYear - b.FundingYear;
+    return b.AverageCostSavings - a.AverageCostSavings;
+  });
+
+  //format numbers
+  report.forEach(r => {
+    r.AverageCostSavings = Number(r.AverageCostSavings.toFixed(2));
+    r.OverrunRate = Number(r.OverrunRate.toFixed(2));
+    r.YoYChange = Number(r.YoYChange.toFixed(2));
+  });
+
+  printSampleToConsole(report);
+  saveToCSV(report, 'report3_annual_trend.csv');
+}
+
+//Export functions if running in modular env (optional)
+if(typeof module !== 'undefined' && module.exports){
+  module.exports = { report1, report2, report3 };
+}
+function getDelayDays(start, end) {
+  if (!start || !end) return 0;
+  const s = new Date(start);
+  const e = new Date(end);
+  const diff = (e - s) / (1000 * 60 * 60 * 24);
+  return Math.max(diff, 0);
+}
+
 
 function generateSummary(records) {
   //total projects
@@ -458,15 +370,18 @@ function generateSummary(records) {
 
   //global average delay (across all projects)
   const avgDelay = (
-    records.reduce((sum, r) => sum + (r.AverageCompletionDelayDays || 0), 0) / totalProjects
-  ).toFixed(2);
+  records.reduce(
+    (sum, r) => sum + getDelayDays(r.StartDate, r.ActualCompletionDate),
+    0
+  ) / records.length
+).toFixed(2);
 
   //total savings
   const totalSavings = records.reduce((sum, r) => {
     return sum + generateCostSavings(r.ApprovedBudgetForContract, r.ContractCost);
   }, 0).toFixed(2);
 
-  // build summary object
+  //build summary object
   const summary = {
     totalProjects,
     totalContractors,
@@ -475,7 +390,7 @@ function generateSummary(records) {
     totalCostSavings: Number(totalSavings)
   };
 
-  // save summary.json
+  //save summary.json
   const fs = require("fs");
   fs.writeFileSync("summary.json", JSON.stringify(summary, null, 2), "utf-8");
   console.log("summary.json generated!");
@@ -513,6 +428,7 @@ while (running) {
           report2();
           report3();
           generateSummary(records);
+          
           saveToCSV(records, "full_table_export.csv");
           let menuChoice = prompt("Back to Main Menu? (Y/N): ");
           if (menuChoice.toUpperCase() === "Y") {
